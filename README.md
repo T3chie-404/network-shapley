@@ -8,68 +8,57 @@ The primary goal is to enable more realistic, dynamic, and large-scale network s
 
 The fundamental goal is to compute Shapley values for network contributors. This provides a fair measure of their marginal contribution to overall network performance based on cooperative game theory, moving beyond simpler metrics like mere traffic volume. It helps in understanding the true economic value of different network links and operator contributions within a complex, interconnected system.
 
-## Original Project
-
-This project forks and enhances the original `network-shapley` repository. You can find the original project here: **[Link to Original Network Shapley Repository - TODO: Add URL]**
-
----
-
-## Key Features & Enhancements in This Fork
+## Key Differences & Enhancements in This Fork
 
 This version significantly expands upon the original's capabilities, primarily through the `generate_csv_data.py` script and modifications to `network_shapley.py`:
 
-* NOTE: TIME WAS NOT TAKEN TO COMPLETLY VETTE ACCURACY OF DATA, LOCATIONS, OR VALIDATOR INFO *
-*        THIS WAS A PROOF-OF-CONCEPT TO TRY TO UNDERSTAND THE LARGER SYSTEM AS A WHOLE *
+1.  **API-Driven City & Validator Data (via `generate_csv_data.py`):**
+    * **Live Data Source:** Instead of relying solely on manually created static CSVs for network locations and participant data, this version can fetch live validator information (including data center locations, active stake, and validator population counts) directly from the `validators.app` API.
+    * **Local Caching:** API responses are cached locally (e.g., in `validators_app_cache.json`) to minimize API calls and speed up subsequent runs. The script checks the cache age and can prompt for a refresh.
+    * **`.env` for API Key:** Securely manages the `VALIDATORS_APP_API_KEY` using a `.env` file.
 
-1.  ✨ **API-Driven City & Validator Data (via `generate_csv_data.py`):**
-    * **Live Data Source:** Fetches live validator information (data center locations, active stake, validator counts) directly from the `validators.app` API.
-    * **Local Caching:** Caches API responses (e.g., `validators_app_cache.json`) with configurable stale days.
-    * **Secure API Key Management:** Uses a `.env` file for `VALIDATORS_APP_API_KEY`.
+2.  **Dynamic & Comprehensive Public Link Generation (in `generate_csv_data.py`):**
+    * Public link latencies are now primarily calculated **dynamically based on geographical distance** (using the Haversine formula) between all city pairs identified from the API data (or supplemented by the `EXISTING_CITIES_TEMPLATE`).
+    * This reduces the need for a manually curated, exhaustive `public_links.csv`.
 
-2.  🌍 **Dynamic & Comprehensive Public Link Generation (in `generate_csv_data.py`):**
-    * Public link latencies are primarily calculated **dynamically based on geographical distance** (Haversine formula) between city pairs.
-    * Utilizes `MAJOR_REGIONS` mapping for more accurate inter/intra-continental latency calculations.
+3.  **Advanced City Data Processing & Standardization (in `generate_csv_data.py`):**
+    * **`EXISTING_CITIES_TEMPLATE`:** This user-maintained dictionary within `generate_csv_data.py` is crucial for:
+        * **Standardizing 3-Letter Codes:** Mapping city names parsed from potentially varied API `data_center_key` formats (e.g., "Frankfurt am Main, DE") to your preferred, consistent 3-letter codes (e.g., "FRA").
+        * **Latitude/Longitude Override/Fallback:** Providing verified latitude and longitude for cities, which will be prioritized over or used as a fallback for API-provided coordinates. This is essential for accurate distance calculations.
+        * **Country Code Correction:** Assisting in inferring or correcting country codes when API data is ambiguous (e.g., using `country_code_override`).
+    * **Robust Parsing:** Improved logic to parse and sanitize city names and country codes from API data, including handling of special characters and varied `data_center_key` formats.
 
-3.  🏙️ **Advanced City Data Processing & Standardization (in `generate_csv_data.py`):**
-    * **`EXISTING_CITIES_TEMPLATE`:** Crucial for standardizing city names to 3-letter codes, providing verified lat/lon, and overriding country codes.
-    * **Robust Parsing:** Improved logic for sanitizing city names and country codes from API `data_center_key`s.
+4.  **Flexible and Scalable Private Link Generation (in `generate_csv_data.py`):**
+    * **Configurable Operator Count:** Supports a configurable number of network operators (e.g., `NUM_TOTAL_OPERATORS = 20`).
+    * **Operator Roles:** Introduces `OPERATOR_Z_NAME` (primary user/operator) and `OPERATOR_A_NAME` (competitor) for specific link assignments.
+    * **Dedicated Operator Links:** Allows defining specific fixed links for `OPERATOR_Z_LINKS` and `OPERATOR_A_LINKS` with custom costs and bandwidths. OperatorZ can also be assigned a configurable number of additional random links (`NUM_RANDOM_LINKS_FOR_OPERATOR_Z`).
+    * **Granular Link Distribution:**
+        * Defines `NUM_TOP_OPERATORS` (e.g., 5) who receive a larger share of the remaining random links.
+        * The `TOTAL_PRIVATE_LINKS_TARGET` (e.g., 200) is distributed after accounting for fixed links (DZ TestNet, OperatorZ, OperatorA).
+        * Top operators receive ~80% of the *remaining random links*, while the other operators share the remaining ~20%.
+    * **Stake-Influenced Link Placement:** Randomly generated private links can be preferentially placed on routes between high-stake city pairs, derived from demand definitions and aggregated city stakes.
+    * **Tiered Bandwidth:** Supports assigning different bandwidth tiers (e.g., 100G via `HIGH_BANDWIDTH_VALUE`, 10G via `STANDARD_BANDWIDTH_VALUE`) to private links. 90% of random links for top operators get high bandwidth, while other operators' random links get standard bandwidth. OperatorZ's specific links can also be configured for high bandwidth.
 
-4.  🔗 **Flexible & Scalable Private Link Generation (in `generate_csv_data.py`):**
-    * **Configurable Operator Count & Link Targets:** (See "Key Configuration Parameters" below).
-    * **Granular Link Distribution:** Proportional distribution of random links among "top" and "other" operators.
-    * **Stake-Influenced Link Placement:** Randomly generated private links can be biased towards high-stake city pairs (derived from demand definitions).
-    * **Tiered Bandwidth:** Assigns different bandwidth tiers (e.g., 100G, 10G) to private links, with configurable ratios for top operators.
-    * **Fixed Links:** Retains support for defining specific fixed links (e.g., DZ TestNet, OperatorZ specific routes).
+5.  **Expanded & Stake-Influenced Demand Generation (in `generate_csv_data.py`):**
+    * The `raw_demand_definitions` list has been significantly expanded to provide a richer set of traffic scenarios.
+    * Traffic volumes in `demand.csv` are influenced by the `active_stake` of the source cities, making demand patterns more dynamic.
+    * Demand pairs are defined using descriptive city names and country codes (e.g., `('New York', 'US')`) which are then mapped to the final 3-letter codes.
 
-5.  📊 **Stake-Influenced Demand Generation (in `generate_csv_data.py`):**
-    * Traffic volumes in `demand.csv` are influenced by the `active_stake` of source cities, modulated by `STAKE_INFLUENCE_AGGREGATE_FACTOR` and per-route `stake_influence` settings. (See "Key Configuration Parameters").
-    * Demand pairs are defined using descriptive names and mapped to 3-letter codes.
+6.  **Parallelized Shapley Calculation (in `network_shapley.py`):**
+    * The core `network_shapley.py` script utilizes Python's `multiprocessing` module to parallelize the coalition valuation loop, reducing runtime for simulations with more operators.
 
-6.  🚀 **Parallelized Shapley Calculation (in `network_shapley.py`):**
-    * Utilizes Python's `multiprocessing` to parallelize the coalition valuation loop.
+7.  **Improved Reporting & Debugging (from `generate_csv_data.py`):**
+    * `validator_api_summary.txt`: Comprehensive dump of raw API data.
+    * `cities_needing_region_review.csv`: Lists cities needing manual review for codes, lat/lon, or region mapping.
+    * **Operator Link Count Summary:** The script now prints a summary of how many links each operator was assigned, helping to verify the distribution.
+    * Enhanced warning messages for parsing and mapping issues.
 
-7.  📝 **Improved Reporting & Debugging (from `generate_csv_data.py`):**
-    * `validator_api_summary.txt`: Human-readable API data dump.
-    * `cities_needing_region_review.csv`: Lists cities needing manual review.
-    * Console summaries of operator link counts and parsing issues.
-
----
-
-## Prerequisites
-
-* Python (3.7+ recommended)
-* pip (Python package installer)
-* Git
-* A `validators.app` API key.
-
----
-
-## Installation
+## Get Started (Updated Workflow)
 
 1.  **Clone the Repository:**
     ```bash
-    git clone https://github.com/T3chie-404/network-shapley.git # TODO: Replace with your fork's actual URL
-    cd network-shapley # Or your repository's directory name
+    git clone <your-fork-url>
+    cd network-shapley
     ```
 
 2.  **Set up Python Environment & Install Requirements:**
@@ -81,100 +70,42 @@ This version significantly expands upon the original's capabilities, primarily t
     *(Ensure `pandas`, `numpy`, `scipy`, `requests`, `python-dotenv` are in `requirements.txt`)*
 
 3.  **Create `.env` File for API Key:**
-    * In the project root, create `.env`: `VALIDATORS_APP_API_KEY=your_api_token_here`
+    * In the project root, create `.env` with: `VALIDATORS_APP_API_KEY=your_actual_secret_api_token_here`
     * **Add `.env` to your `.gitignore` file.**
 
----
+4.  **Curate Data Generation Parameters (in `generate_csv_data.py`):**
+    * Open `generate_csv_data.py`.
+    * **`EXISTING_CITIES_TEMPLATE`:** This is crucial. Populate this dictionary with cities you expect from the API or want to ensure are included with specific codes and verified lat/lon. Use normalized keys (e.g., `cityname_cc` like `frankfurt_de`).
+    * **`MAJOR_REGIONS`:** Ensure this dictionary maps all your final 3-letter city codes to the correct geographical regions.
+    * **Operator Configuration:**
+        * Set `OPERATOR_Z_NAME` and `OPERATOR_A_NAME`. Operator Z is the script user and Operator A is for adding specific links to a route to test as a competitor on your route.
+        * Define `OPERATOR_Z_LINKS` and `OPERATOR_A_LINKS` with their specific city pairs, costs, and bandwidths.
+        * Configure `NUM_RANDOM_LINKS_FOR_OPERATOR_Z`. This is if you want your user to be assigned and number of random links in addition to the defined ones.
+    * **Network Configuration:**
+        * Adjust `NUM_TOTAL_OPERATORS` (e.g., 20).
+        * Adjust `NUM_TOP_OPERATORS` (e.g., 5).
+        * Set `TOTAL_PRIVATE_LINKS_TARGET` (e.g., 200).
+        * Configure `HIGH_BANDWIDTH_VALUE`, `STANDARD_BANDWIDTH_VALUE`, and `HIGH_BANDWIDTH_RATIO_FOR_TOP_OPS`.
+    * **Demand:** Review and expand `raw_demand_definitions` as needed.
 
-## Configuration (`generate_csv_data.py`)
-
-Before running `generate_csv_data.py`, review and adjust parameters at the top of the script:
-
-1.  **API & Cache Settings:**
-    * `CACHE_STALE_DAYS`: How old API cache can be before prompting for refresh.
-
-2.  **`EXISTING_CITIES_TEMPLATE` (CRUCIAL):**
-    * Your primary tool for standardizing city data from the API.
-    * Map varied API city names/country codes to your preferred 3-letter `code`, verified `lat`/`lon`, and `country_code_override`.
-    * Keys should be lowercase, underscore-separated: `cityname_cc` (e.g., `frankfurt_de`).
-
-3.  **`MAJOR_REGIONS`:**
-    * Map your final 3-letter city codes to geographical regions (NA, EU, AS, etc.) for accurate latency calculations. Cities not mapped here or inferred by country code will be flagged for review.
-
-4.  **Key Simulation Parameters (User-Adjusted Values from your selection):**
-    * **`HIGH_BANDWIDTH_VALUE` / `STANDARD_BANDWIDTH_VALUE`**: Define capacities for different link tiers (e.g., 100G, 10G).
-    * **`NUM_TOTAL_OPERATORS = 1`**: Sets the total number of distinct network operators in the simulation. This includes your main operator (e.g., `OperatorZ`), operators derived from fixed links (like `DZ_Op_XXXX`), and any procedurally generated `Contributor` operators needed to reach this total. *Your current setting of `1` will likely result in only `OperatorZ` or a single DZ operator if no other fixed links define more.*
-    * **`NUM_TOP_OPERATORS = 5`**: Designates how many operators are considered "top-tier." These operators can receive a higher proportion of high-bandwidth links if random links are generated for them.
-    * **`TOTAL_PRIVATE_LINKS_TARGET = 60`**: The script will attempt to generate enough random private links to reach this total after accounting for predefined fixed links (like DZ TestNet or OperatorZ links). *With your current setting of 60, and considering the number of fixed links, this will determine how many (if any) random links are created.*
-    * **`HIGH_BANDWIDTH_RATIO_FOR_TOP_OPS = 0.80`**: For any *randomly generated* private links assigned to "top-tier" operators, this ratio (80%) will be high-bandwidth (e.g., 100G). The remainder (20%) will be standard bandwidth.
-    * **`STAKE_INFLUENCE_AGGREGATE_FACTOR = 10.0`**: This is a general scaling factor applied to the influence of a source city's validator stake on its generated traffic demand. It works alongside the per-route `stake_influence` multiplier defined in `raw_demand_definitions`. A higher aggregate factor means stake generally has a more pronounced impact on demand volumes across all routes.
-    * **`MIN_DEMAND_PER_ROUTE = 1`**: Ensures that every defined demand pair will have at least this minimum amount of traffic, regardless of stake calculations.
-
-5.  **Fixed Link Definitions:**
-    * `DZ_TESTNET_LINKS_RAW_DESCRIPTIVE`: Define specific links with known latencies and owners, like the DoubleZero TestNet.
-    * You can add other fixed links for `OPERATOR_Z` or other specific operators directly in the script.
-
-6.  **Demand Definitions:**
-    * `raw_demand_definitions`: A list of dictionaries defining traffic demand pairs. Each entry specifies:
-        * `source_desc` / `destination_desc`: Tuples of (City Name, Country Code).
-        * `base_traffic_weight`: Base volume for this demand.
-        * `value`: Economic value of the traffic (used by Shapley).
-        * `stake_influence`: A per-route multiplier (0.0 to 1.0+) indicating how strongly the source city's stake should affect this specific route's demand, used in conjunction with `STAKE_INFLUENCE_AGGREGATE_FACTOR`.
-
----
-
-## Workflow: Generating Data & Running Simulations
-
-1.  **Curate `generate_csv_data.py`:**
-    * Set API key in `.env`.
-    * Carefully populate `EXISTING_CITIES_TEMPLATE`.
-    * Ensure `MAJOR_REGIONS` is comprehensive for your city codes.
-    * Adjust simulation parameters (operator counts, link targets, bandwidths, demand factors) as described above.
-
-2.  **Generate Simulation Input CSVs:**
+5.  **Generate Simulation Input CSVs:**
     ```bash
     python3 generate_csv_data.py
     ```
-    * Prompts to refresh API data if cache is stale.
-    * Outputs: `public_links.csv`, `private_links.csv`, `demand.csv`, `validator_api_summary.txt`, `cities_needing_region_review.csv`.
+    * Review console output, especially the "Operator Link Counts" summary.
+    * Check `validator_api_summary.txt` and `cities_needing_region_review.csv`.
 
-3.  **Iterate on Data Quality (CRUCIAL):**
-    * Review `validator_api_summary.txt` (how API data is parsed).
-    * Examine `cities_needing_region_review.csv`. For each city:
-        1.  Verify/correct its 3-letter code, lat/lon.
-        2.  Update `EXISTING_CITIES_TEMPLATE` in `generate_csv_data.py`.
-        3.  Add its final 3-letter code to the correct list in `MAJOR_REGIONS`.
-    * Re-run `generate_csv_data.py`. Repeat until `cities_needing_region_review.csv` is satisfactory.
+6.  **Iterate on Data Quality (CRUCIAL):**
+    * Based on `cities_needing_region_review.csv` and any warnings:
+        1.  Refine `EXISTING_CITIES_TEMPLATE` for better city name to code/geo mapping.
+        2.  Update `MAJOR_REGIONS` with any new or corrected city codes.
+    * Re-run `generate_csv_data.py`. Repeat until the generated data is satisfactory.
 
-4.  **Run the Simulation:**
+7.  **Run the Simulation:**
     * Use `run_worldwide_simulation.py` or your custom run script.
         ```bash
         python3 run_worldwide_simulation.py
         ```
-    * **Operator Limit Note:** `network_shapley.py` has an assertion (`_assert(n_ops < 21, ...)`). If you configure `NUM_TOTAL_OPERATORS` in `generate_csv_data.py` to be higher than this limit (e.g., 20 operators means `n_ops` will be 20), you may need to adjust this assertion in `network_shapley.py`. Be mindful of exponential computation time increase with more operators.
+    * **Operator Limit in `network_shapley.py`:** The core `network_shapley.py` script has an assertion like `_assert(n_ops < 16, ...)`. If `generate_csv_data.py` now produces a `private_links.csv` with more unique operators than this limit, you **must** modify this assertion in `network_shapley.py` (e.g., to `_assert(n_ops < 21, ...)` if you expect up to 20 operators). Be mindful of the exponential increase in computation time with more operators.
 
----
 
-## Key Scripts and Files Overview
-
-* **`generate_csv_data.py`**: Main script for data generation. Contains key configurations.
-* **`network_shapley.py`**: Core script for Shapley value calculations (parallelized).
-* **`run_worldwide_simulation.py`**: Example script to run the simulation.
-* **`.env`**: Stores `VALIDATORS_APP_API_KEY`.
-* **`requirements.txt`**: Python dependencies.
-* **Output CSVs (`*.csv`)**: `public_links.csv`, `private_links.csv`, `demand.csv`.
-* **Reports & Cache**: `validators_app_cache.json`, `validator_api_summary.txt`, `cities_needing_region_review.csv`.
-
----
-
-## Contributing
-
-Contributions are welcome! Please open an issue to discuss changes, then fork and submit a pull request.
-
----
-
-## License
-
-**[TODO: Specify License Information Here]**
-
----
