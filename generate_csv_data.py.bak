@@ -62,7 +62,7 @@ DZ_TESTNET_LINKS_RAW_DESCRIPTIVE = [
     {'cities': (('Tokyo', 'JP'), ('Los Angeles', 'US')),      'latency_rtt_ms': 98.71, 'owner_pubkey': "66yfemxTAjCL686R4FFpGugx1myQ7X6m274MzWB82xBy"},
     {'cities': (('London', 'GB'), ('Frankfurt', 'DE')),       'latency_rtt_ms': 11.09, 'owner_pubkey': "66yfemxTAjCL686R4FFpGugx1myQ7X6m274MzWB82xBy"},
 ]
-DZ_TESTNET_BANDWIDTH = STANDARD_BANDWIDTH_VALUE # Using STANDARD_BANDWIDTH_VALUE for consistency
+DZ_TESTNET_BANDWIDTH = 10000 # Typically 10G
 
 # EXISTING_CITIES_TEMPLATE:
 # Primary lookup for preferred 3-letter codes and verified lat/lon for cities.
@@ -164,12 +164,13 @@ EXISTING_CITIES_TEMPLATE = {
     "espoo_fi":      {'code': "ESP", 'lat': 60.2050, 'lon': 24.6455, 'country_code_override': 'FI'},
     "chelyabinsk_ru":{'code': "CEK", 'lat': 55.1581, 'lon': 61.4313, 'country_code_override': 'RU'},
     "kursk_ru":      {'code': "URS", 'lat': 51.7280, 'lon': 36.1895, 'country_code_override': 'RU'},
-    "sala_sk":       {'code': "SAL", 'lat': 48.1592, 'lon': 17.8834, 'country_code_override': 'SK'},
+    "sala_sk":       {'code': "SAL", 'lat': 48.1592, 'lon': 17.8834, 'country_code_override': 'SK'}, # For Šaľa
     "halfweg_nl":    {'code': "HFW", 'lat': 52.3862, 'lon': 4.7506, 'country_code_override': 'NL'},
     "falkenstein_de":{'code': "FAL", 'lat': 50.4777, 'lon': 12.3649, 'country_code_override': 'DE'},
     "nuremberg_de":  {'code': "NUR", 'lat': 49.4521, 'lon': 11.0767, 'country_code_override': 'DE'},
     "milan_it":      {'code': "MIL", 'lat': 45.4642, 'lon': 9.1900, 'country_code_override': 'IT'},
     "brussels_be":   {'code': "BRU", 'lat': 50.8503, 'lon': 4.3517, 'country_code_override': 'BE'},
+    "vaduz_li":      {'code': "VDZ", 'lat': 47.1410, 'lon': 9.5215, 'country_code_override': 'LI' }, # VAX -> VDZ
 
     # Asia, Oceania, SA, Africa
     "guigang_cn":    {'code': "GUI", 'lat': 23.0964, 'lon': 109.6072, 'country_code_override': 'CN'},
@@ -272,57 +273,63 @@ def parse_api_validator_data(api_data):
 
         country_code = "XX"; city_name_raw = "UnknownCity"
 
+        # Handle cases like "29066--Europe/Vaduz"
         if "--" in dc_key:
             parts_double_hyphen = dc_key.split('--', 1)
-            first_part_of_double = parts_double_hyphen[0]
+            first_part_of_double = parts_double_hyphen[0] # Could be ASN or other prefix
             if len(parts_double_hyphen) > 1:
-                city_name_raw = parts_double_hyphen[1]
-            else:
+                city_name_raw = parts_double_hyphen[1] # e.g., "Europe/Vaduz"
+            else: # Malformed double-hyphen
                  parsing_issues_count +=1; continue
-        else:
+        else: # Standard split for "ASN-CC-City" or "CC-City"
             parts = dc_key.split('-', 2)
-            if len(parts) >= 3:
-                if parts[0].isdigit() and len(parts[1]) == 2 and parts[1].isalpha():
+            if len(parts) >= 3: # ASN-CC-City or CC-City-Extra
+                if parts[0].isdigit() and len(parts[1]) == 2 and parts[1].isalpha(): # ASN-CC-City
                     country_code = parts[1].upper()
                     city_name_raw = parts[2]
-                elif len(parts[0]) == 2 and parts[0].isalpha() and parts[0].isupper():
+                elif len(parts[0]) == 2 and parts[0].isalpha() and parts[0].isupper(): # CC-City-Extra
                     country_code = parts[0].upper()
                     city_name_raw = "-".join(parts[1:])
-                else:
+                else: # Other non-standard 3+ part
                     city_name_raw = dc_key
                     parsing_issues_count +=1
-            elif len(parts) == 2:
-                if len(parts[0]) == 2 and parts[0].isalpha() and parts[0].isupper():
+            elif len(parts) == 2: # CC-City or ASN-City or City-Suffix
+                if len(parts[0]) == 2 and parts[0].isalpha() and parts[0].isupper(): # CC-City
                     country_code = parts[0].upper()
                     city_name_raw = parts[1]
-                elif parts[0].isdigit():
+                elif parts[0].isdigit(): # ASN-City
                      city_name_raw = parts[1]
-                else:
+                else: # Assume City-Suffix or just City
                     city_name_raw = dc_key
                     parsing_issues_count +=1
-            elif len(parts) == 1 :
+            elif len(parts) == 1 : # City only, or CCcity
                 if len(dc_key) > 2 and dc_key[:2].isalpha() and dc_key[:2].isupper() and not dc_key[2:].isdigit():
                     country_code = dc_key[:2].upper(); city_name_raw = dc_key[2:]
                 else:
                     city_name_raw = dc_key
-            else:
+            else: # Unparseable
                 parsing_issues_count +=1; continue
 
+        # Clean city_name_raw
         for prefix in ["Europe/", "America/", "Asia/"]:
             if city_name_raw.startswith(prefix):
                 city_name_raw = city_name_raw[len(prefix):]
                 break
         
         city_name_cleaned = city_name_raw.replace(" am Main", "").replace(" (Oder)", "").strip()
+        
+        # Sanitize: remove any non-alphanumeric characters except spaces and hyphens.
         city_name_cleaned = city_name_cleaned.replace("Š", "S").replace("š", "s")
-        city_name_cleaned = city_name_cleaned.replace("á", "a").replace("í", "i").replace("é", "e")
-        city_name_cleaned = city_name_cleaned.replace("ö", "o").replace("ä", "a").replace("ü", "u")
-        city_name_cleaned = city_name_cleaned.replace("ø", "o")
+        city_name_cleaned = city_name_cleaned.replace("á", "a").replace("í", "i").replace("é", "e") 
+        city_name_cleaned = city_name_cleaned.replace("ö", "o").replace("ä", "a").replace("ü", "u") 
+        city_name_cleaned = city_name_cleaned.replace("ø", "o") 
+
         city_name_cleaned = "".join(char for char in city_name_cleaned if char.isalnum() or char.isspace() or char == '-').strip()
-        city_name_cleaned = re.sub(r'\s+', ' ', city_name_cleaned)
+        city_name_cleaned = re.sub(r'\s+', ' ', city_name_cleaned) # Consolidate multiple spaces
         
         if not city_name_cleaned: city_name_cleaned = "UnknownCity"; parsing_issues_count +=1
 
+        # Final validation for country_code
         if not (country_code and len(country_code) == 2 and country_code.isalpha() and country_code.isupper()):
             if country_code != "XX":
                 parsing_issues_count +=1
@@ -353,6 +360,7 @@ def get_or_assign_code(city_name, country_code, used_codes_session):
     norm_api_country_code_key = country_code.lower().strip()
     
     api_lookup_key_normalized = f"{norm_api_city_name_key}_{norm_api_country_code_key}"
+    
     template_data = EXISTING_CITIES_TEMPLATE.get(api_lookup_key_normalized)
 
     if not template_data: 
@@ -361,14 +369,19 @@ def get_or_assign_code(city_name, country_code, used_codes_session):
             parts = template_key_iter_norm.rsplit('_', 1)
             template_city_part = parts[0] 
             template_cc_part = parts[1] if len(parts) > 1 else ""
+
             city_name_match = (norm_api_city_name_key == template_city_part or
                                (len(norm_api_city_name_key) >=3 and norm_api_city_name_key in template_city_part) or
                                (len(template_city_part) >=3 and template_city_part in norm_api_city_name_key))
+            
             country_match_direct = norm_api_country_code_key == template_cc_part
             country_match_override = norm_api_country_code_key == template_data_iter.get('country_code_override','').lower()
+
             if city_name_match and (country_match_direct or (template_data_iter.get('country_code_override') and country_match_override)):
                 candidate_code = template_data_iter.get('code')
-                if candidate_code: generated_code = candidate_code; break 
+                if candidate_code:
+                    generated_code = candidate_code
+                    break 
     elif template_data: 
          generated_code = template_data.get('code')
             
@@ -376,8 +389,10 @@ def get_or_assign_code(city_name, country_code, used_codes_session):
         base = "".join(filter(str.isalpha, city_name.upper()))[:2] 
         if not base and city_name: base = "".join(filter(str.isalnum, city_name.upper()))[:2] 
         if not base: base = "XX" 
+        
         cc_part = "".join(filter(str.isalpha, country_code.upper() if isinstance(country_code, str) else "X"))[:1] 
         if not cc_part: cc_part = "X"
+        
         generated_code = (base + cc_part).upper() 
         generated_code = "".join(filter(str.isalpha, generated_code)) 
         if len(generated_code) > 3: generated_code = generated_code[:3]
@@ -405,15 +420,18 @@ def get_or_assign_code(city_name, country_code, used_codes_session):
             if final_code in used_codes_session: 
                 print(f"CRITICAL: Unique alpha code failed for {original_final_code} from {city_name},{country_code}. Using ERR.")
                 return "ERR"
+        
         final_code = "".join(filter(str.isalpha, final_code.upper()))[:3]
         if len(final_code) < 3: final_code = (final_code + "XXX")[:3] 
         current_try_code = final_code
+
         if counter > 150: 
              print(f"CRITICAL: Exhausted attempts for {original_final_code} ({city_name}, {country_code}). Using FLX as last resort.")
              final_code = "FLX"; 
              if final_code in used_codes_session: return "ERR"
              break
     return final_code
+
 
 def initialize_cities_database(api_parsed_data): 
     final_db = {}; used_codes_for_session = set() 
@@ -428,6 +446,7 @@ def initialize_cities_database(api_parsed_data):
             normalized_city_name_for_template_lookup = city_name.lower().replace(" ", "_").replace("-","_")
             for template_key, template_val in EXISTING_CITIES_TEMPLATE.items():
                 template_city_part_normalized = template_key.lower().replace(" ", "_").replace("-", "_").rsplit('_',1)[0]
+                
                 if normalized_city_name_for_template_lookup == template_city_part_normalized and template_val.get('country_code_override'):
                     inferred_cc = template_val['country_code_override']
                     country_code = inferred_cc.upper() 
@@ -447,15 +466,17 @@ def initialize_cities_database(api_parsed_data):
         lat, lon = lat_from_api, lon_from_api 
 
         template_lat_lon_found_for_code = False
+        # Check if the assigned_code exists in any template entry's 'code' value to get template lat/lon
+        # This ensures if a code was assigned via template, we use its lat/lon
         for _desc_key_template, template_item_val in EXISTING_CITIES_TEMPLATE.items(): 
             if template_item_val.get('code') == assigned_code: 
                 if template_item_val.get('lat', 0.0) != 0.0 or template_item_val.get('lon', 0.0) != 0.0:
-                    lat = template_item_val.get('lat', 0.0) 
+                    lat = template_item_val.get('lat', 0.0) # Prioritize template lat/lon
                     lon = template_item_val.get('lon', 0.0)
                     template_lat_lon_found_for_code = True
                 break 
         
-        if not template_lat_lon_found_for_code and (lat == 0.0 and lon == 0.0) and (assigned_code not in ["UNK", "ERR"]):
+        if (lat == 0.0 and lon == 0.0) and (assigned_code not in ["UNK", "ERR"]): # If still 0,0 after checking template for the code
              print(f"ACTION NEEDED: City '{city_name}, {country_code}' (Code: {assigned_code}) has NO Lat/Lon from API or Template. Using (0,0).")
         
         final_descriptive_name = f"{city_name}, {country_code}"
@@ -604,58 +625,67 @@ DZ_TESTNET_LINKS_RAW_DESCRIPTIVE = [
     {'cities': (('Tokyo', 'JP'), ('Los Angeles', 'US')),      'latency_rtt_ms': 98.71, 'owner_pubkey': "66yfemxTAjCL686R4FFpGugx1myQ7X6m274MzWB82xBy"},
     {'cities': (('London', 'GB'), ('Frankfurt', 'DE')),       'latency_rtt_ms': 11.09, 'owner_pubkey': "66yfemxTAjCL686R4FFpGugx1myQ7X6m274MzWB82xBy"},
 ]
-DZ_TESTNET_BANDWIDTH = STANDARD_BANDWIDTH_VALUE 
+DZ_TESTNET_BANDWIDTH = STANDARD_BANDWIDTH_VALUE # Using STANDARD_BANDWIDTH_VALUE for consistency
 OPERATOR_Z = "OperatorZ"; NUM_TOTAL_OPERATORS = 20; NUM_TOP_OPERATORS = 5 
 TOTAL_PRIVATE_LINKS_TARGET = 200 
 
 descriptive_name_to_code_map = {data['descriptive_name']: code for code, data in CITIES_DATABASE.items() if CITIES_DATABASE}
 
 dz_operator_map = {}
-for link_info in DZ_TESTNET_LINKS_RAW_DESCRIPTIVE: 
+for link_info in DZ_TESTNET_LINKS_RAW_DESCRIPTIVE:
     pubkey = link_info['owner_pubkey']
     if pubkey not in dz_operator_map: dz_operator_map[pubkey] = f"DZ_Op_{pubkey[:4]}"
-unique_dz_ops = list(dz_operator_map.values()) 
+unique_dz_ops = list(dz_operator_map.values()) # Definition of unique_dz_ops
 
-all_operator_names = [OPERATOR_Z_NAME]
+# Build the list of all operator names
+all_operator_names_base = [OPERATOR_Z_NAME] + [f"Contributor{i}" for i in range(1, NUM_TOTAL_OPERATORS)] # OPERATOR_Z was renamed to OPERATOR_Z_NAME
+all_operator_names = [OPERATOR_Z_NAME] # OPERATOR_Z was renamed to OPERATOR_Z_NAME
 if OPERATOR_A_NAME and OPERATOR_A_NAME not in all_operator_names:
     all_operator_names.append(OPERATOR_A_NAME)
-for dz_op in unique_dz_ops:
-    if dz_op not in all_operator_names:
-        all_operator_names.append(dz_op)
+for dz_op in unique_dz_ops: # This is where the error occurs (line 643 in your file)
+    if dz_op not in all_operator_names: all_operator_names.append(dz_op)
 
+# Fill remaining operator slots with "ContributorN"
 contributor_idx = 1
 while len(all_operator_names) < NUM_TOTAL_OPERATORS:
     contributor_name = f"Contributor{contributor_idx}"
     if contributor_name not in all_operator_names:
         all_operator_names.append(contributor_name)
     contributor_idx += 1
-    if contributor_idx > (NUM_TOTAL_OPERATORS * 2 + len(unique_dz_ops) + (1 if OPERATOR_A_NAME else 0) ): break 
-all_operator_names = all_operator_names[:NUM_TOTAL_OPERATORS] 
+    # Safety break if NUM_TOTAL_OPERATORS is very small or names clash unexpectedly
+    if contributor_idx > NUM_TOTAL_OPERATORS * 2: # Allow some room for DZ_Ops and named ops
+        print(f"Warning: Could not populate all {NUM_TOTAL_OPERATORS} operators. Stopping at {len(all_operator_names)}.")
+        break
+all_operator_names = all_operator_names[:NUM_TOTAL_OPERATORS] # Ensure exact count
 
+# Determine top operators
 top_operators = []
-if OPERATOR_Z_NAME in all_operator_names: # OperatorZ is always a top operator if in the list
+if OPERATOR_Z_NAME in all_operator_names:
     top_operators.append(OPERATOR_Z_NAME)
 if OPERATOR_A_NAME and OPERATOR_A_NAME in all_operator_names and OPERATOR_A_NAME not in top_operators and len(top_operators) < NUM_TOP_OPERATORS:
     top_operators.append(OPERATOR_A_NAME)
 
+# Fill remaining top operator slots with Contributors, then other unique DZ ops if needed
 current_contributor_idx_for_top = 1
 while len(top_operators) < NUM_TOP_OPERATORS:
     candidate = f"Contributor{current_contributor_idx_for_top}"
     if candidate in all_operator_names and candidate not in top_operators:
         top_operators.append(candidate)
-    elif candidate not in all_operator_names and current_contributor_idx_for_top > (NUM_TOTAL_OPERATORS - len(unique_dz_ops) - (1 if OPERATOR_A_NAME else 0) -1 ): # Break if no more contributors
-        break
+    elif candidate not in all_operator_names: # No more "ContributorX" to pick from the main list
+        break 
     current_contributor_idx_for_top += 1
-    if current_contributor_idx_for_top > NUM_TOTAL_OPERATORS * 2 : break # Safety break
 
-# Fill remaining top operator slots with other unique operators if needed
-idx = 0
-while len(top_operators) < NUM_TOP_OPERATORS and idx < len(all_operator_names):
-    if all_operator_names[idx] not in top_operators:
-        top_operators.append(all_operator_names[idx])
-    idx +=1
+# If still not enough top operators, fill with remaining unique operators
+# (excluding those already in top_operators or DZ ops if already covered)
+remaining_ops_for_top = [op for op in all_operator_names if op not in top_operators]
+for op in remaining_ops_for_top:
+    if len(top_operators) < NUM_TOP_OPERATORS:
+        top_operators.append(op)
+    else:
+        break
 
 other_operators = [name for name in all_operator_names if name not in top_operators]
+
 new_private_links_data = []
 public_link_cost_lookup = {} 
 
@@ -675,11 +705,11 @@ for link_spec in OPERATOR_Z_LINKS:
     end_code = descriptive_name_to_code_map.get(end_desc_name)
     if start_code and end_code:
         new_private_links_data.append({
-            'operator': OPERATOR_Z_NAME,
+            'operator': OPERATOR_Z_NAME, # Use OPERATOR_Z_NAME
             'start': start_code,
             'end': end_code,
             'cost': link_spec['cost'],
-            'bandwidth': link_spec['bandwidth'], 
+            'bandwidth': link_spec['bandwidth'], # Bandwidth is specified in OPERATOR_Z_LINKS
             'shared_tag': link_spec.get('shared_tag') 
         })
     else:
@@ -696,7 +726,7 @@ if OPERATOR_A_NAME:
         end_code = descriptive_name_to_code_map.get(end_desc_name)
         if start_code and end_code:
             new_private_links_data.append({
-                'operator': OPERATOR_A_NAME,
+                'operator': OPERATOR_A_NAME, # Use OPERATOR_A_NAME
                 'start': start_code,
                 'end': end_code,
                 'cost': link_spec['cost'],
@@ -718,6 +748,11 @@ for link_info in DZ_TESTNET_LINKS_RAW_DESCRIPTIVE:
         new_private_links_data.append({'operator': operator_name, 'start': start_city_code, 'end': end_city_code,'cost': one_way_cost, 'bandwidth': DZ_TESTNET_BANDWIDTH,'shared_tag': f"dz_{start_city_code}_{end_city_code}"})
     else: print(f"Warning: Could not map DZ TestNet cities '{desc_name1}' (->{start_city_code}) or '{desc_name2}' (->{end_city_code}) to 3L codes. Skipping link.")
 
+# Add Contributor1's specific CHI-SLC link if Contributor1 is distinct and in top_operators
+# This specific link is now handled by OPERATOR_Z_LINKS or random assignment.
+# If Contributor1 is one of the top_operators, they will get random links.
+# If you want Contributor1 to *always* have a specific link beyond OPERATOR_Z_LINKS, add it to OPERATOR_A_LINKS or a similar structure.
+
 num_fixed_links = len(new_private_links_data)
 random_links_to_generate = max(0, TOTAL_PRIVATE_LINKS_TARGET - num_fixed_links)
 
@@ -728,12 +763,12 @@ if NUM_RANDOM_LINKS_FOR_OPERATOR_Z > 0 and OPERATOR_Z_NAME in all_operator_names
         if len(city_codes) < 2: break
         try:
             c1, c2 = random.sample(city_codes, 2)
-            while c1 == c2 or c1 == "UNK" or c2 == "UNK" or c1 == "ERR" or c2 == "ERR": 
+            while c1 == c2 or c1 == "UNK" or c2 == "UNK" or c1 == "ERR" or c2 == "ERR": # Ensure different and valid cities
                 c1, c2 = random.sample(city_codes, 2)
         except ValueError:
             print(f"Warning: Not enough cities ({len(city_codes)}) to sample for OperatorZ random links."); break
         
-        public_cost = public_link_cost_lookup.get((c1, c2), public_link_cost_lookup.get((c2,c1),150)) 
+        public_cost = public_link_cost_lookup.get((c1, c2), public_link_cost_lookup.get((c2,c1),150)) # Default to 150 if not in public links
         improvement = random.uniform(0.03, 0.20)
         private_cost = max(1, int(round(public_cost * (1 - improvement))))
         bandwidth = HIGH_BANDWIDTH_VALUE if random.random() < HIGH_BANDWIDTH_RATIO_FOR_TOP_OPS else STANDARD_BANDWIDTH_VALUE
@@ -763,14 +798,11 @@ if random_links_to_generate > 0 and city_codes and len(city_codes) >= 2:
                 temp_demand_pairs.append(((source_code, dest_code), s_stake + d_stake))
         prioritized_routes = [pair for pair, score in sorted(temp_demand_pairs, key=lambda x: x[1], reverse=True)]
 
-    # Determine the pool of top operators for the general random link distribution
-    # Exclude OperatorZ if they already received specific random links OR if they are not meant to be in the random pool by default
-    current_top_operators_pool = [op for op in top_operators if op != OPERATOR_Z_NAME]
-    if not current_top_operators_pool and OPERATOR_Z_NAME in top_operators and NUM_RANDOM_LINKS_FOR_OPERATOR_Z == 0:
-        # If OperatorZ is a top op and has no dedicated random links, they can be in this pool.
-        current_top_operators_pool = top_operators
-    elif not current_top_operators_pool and top_operators: # Fallback if the list became empty (e.g. OperatorZ was the only top_operator)
-        current_top_operators_pool = [op for op in top_operators if op != OPERATOR_Z_NAME] # Ensure OperatorZ is not added twice if they have dedicated random links
+    # Determine the pool of top operators for random link distribution
+    # Exclude OperatorZ if they already received specific random links
+    current_top_operators_pool = [op for op in top_operators if op != OPERATOR_Z_NAME] if NUM_RANDOM_LINKS_FOR_OPERATOR_Z > 0 else list(top_operators)
+    if not current_top_operators_pool and top_operators: # If OperatorZ was the only top op and got random links, this pool might be empty
+        current_top_operators_pool = top_operators # Fallback to using all top_operators if pool is empty
 
     for i in range(num_random_links_for_top_ops_group): 
         if not current_top_operators_pool: print("Warning: Top operators pool for random links is empty."); break 
@@ -792,8 +824,8 @@ if random_links_to_generate > 0 and city_codes and len(city_codes) >= 2:
     if other_operators and num_random_links_for_other_ops_group > 0:
         ops_for_other_links = []
         if len(other_operators) > 0:
-            for i in range(num_random_links_for_other_ops_group): # Ensure we assign the correct number of links
-                ops_for_other_links.append(other_operators[i % len(other_operators)]) # Cycle through other_operators
+            for _ in range(num_random_links_for_other_ops_group):
+                ops_for_other_links.append(random.choice(other_operators)) 
         
         for i_other_op, op in enumerate(ops_for_other_links): 
             c1, c2 = None, None
